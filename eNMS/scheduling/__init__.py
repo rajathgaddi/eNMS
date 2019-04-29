@@ -1,11 +1,16 @@
 from flask import Blueprint
 
-blueprint = Blueprint(
-    'scheduling_blueprint',
+bp = Blueprint(
+    "scheduling_blueprint",
     __name__,
-    url_prefix='/scheduling',
-    template_folder='templates',
-    static_folder='static'
+    url_prefix="/scheduling",
+    template_folder="templates",
+    static_folder="static",
 )
+
+from eNMS.functions import add_classes
+from eNMS.scheduling.models import Task
+
+add_classes(Task)
 
 import eNMS.scheduling.routes  # noqa: F401

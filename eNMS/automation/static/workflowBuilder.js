@@ -1,19 +1,25 @@
 /*
 global
 alertify: false
-compareLogs: false
+call: false
+capitalize: false
+convertSelect: false
+doc: false
+editJob: false
 editService: false
+fCall: false
 partial: false
 runJob: false
 showLogs: false
 showModal: false
+showResults: false
+showTypeModal: false
 vis: false
 workflow: true
 */
 
 const workflowBuilder = true; // eslint-disable-line no-unused-vars
-
-const container = document.getElementById('network');
+const container = document.getElementById("network");
 const dsoptions = {
   edges: {
     font: {
@@ -21,26 +27,20 @@ const dsoptions = {
     },
   },
   nodes: {
-    shape: 'box',
+    shape: "box",
     font: {
       bold: {
-        color: '#0077aa',
+        color: "#0077aa",
       },
     },
   },
   manipulation: {
     enabled: false,
-    addNode: function(data, callback) {
-      // filling in the popup DOM elements
-    },
-    editNode: function(data, callback) {
-      // filling in the popup DOM elements
-    },
+    addNode: function(data, callback) {},
     addEdge: function(data, callback) {
       if (data.from != data.to) {
-        data.type = edgeType == 'success' ? true : false;
+        data.subtype = edgeType;
         saveEdge(data);
-        graph.addEdgeMode();
       }
     },
   },
@@ -51,6 +51,7 @@ let edges;
 let graph;
 let selectedNode;
 let edgeType;
+let lastModified;
 
 /**
  * Display a workflow.
@@ -60,104 +61,107 @@ let edgeType;
 function displayWorkflow(wf) {
   nodes = new vis.DataSet(wf.jobs.map(jobToNode));
   edges = new vis.DataSet(wf.edges.map(edgeToEdge));
-  graph = new vis.Network(container, {nodes: nodes, edges: edges}, dsoptions);
-  graph.setOptions({physics: false});
-  graph.on('oncontext', function(properties) {
+  graph = new vis.Network(container, { nodes: nodes, edges: edges }, dsoptions);
+  graph.setOptions({ physics: false });
+  graph.on("oncontext", function(properties) {
     properties.event.preventDefault();
     const node = this.getNodeAt(properties.pointer.DOM);
-    if (typeof node !== 'undefined') {
-      $('.node-selection').show();
-      $('.global').hide();
+    const edge = this.getEdgeAt(properties.pointer.DOM);
+    if (typeof node !== "undefined" && node != 1 && node != 2) {
+      graph.selectNodes([node]);
+      $(".global,.edge-selection").hide();
+      $(".node-selection").show();
+      selectedNode = node;
+    } else if (typeof edge !== "undefined" && node != 1 && node != 2) {
+      graph.selectEdges([edge]);
+      $(".global,.node-selection").hide();
+      $(".edge-selection").show();
       selectedNode = node;
     } else {
-      $('.global').show();
-      $('.node-selection').hide();
+      $(".node-selection").hide();
+      $(".global").show();
     }
   });
+  graph.on("doubleClick", function(properties) {
+    properties.event.preventDefault();
+    const node = this.getNodeAt(properties.pointer.DOM);
+    if (node) {
+      const job = workflow.jobs.find((w) => w.id === node);
+      if (job.type == "Workflow") {
+        switchToWorkflow(node);
+      } else {
+        editService(node);
+      }
+    }
+  });
+  graph.on("dragEnd", () => savePositions());
+  $(`#add_jobs option[value='${wf.id}']`).remove();
+  $("#add_jobs").selectpicker("refresh");
+  lastModified = wf.last_modified;
   return graph;
 }
 
+/**
+ * Display a workflow.
+ * @param {workflowId} workflowId - Workflow ID.
+
+ */
+function switchToWorkflow(workflowId) {
+  call(`/get/workflow/${workflowId}`, function(result) {
+    workflow = result;
+    graph = displayWorkflow(result);
+    alertify.notify(`Workflow '${workflow.name}' displayed.`, "success", 5);
+  });
+}
+
 if (workflow) {
-  $('#workflow-name').val(workflow.id);
+  $("#current-workflow").val(workflow.id);
   displayWorkflow(workflow);
 } else {
-  $.ajax({
-    type: 'POST',
-    url: `/automation/get/${$('#workflow-name').val()}`,
-    success: function(result) {
-      if (!result) {
-        alertify.notify('HTTP Error 403 – Forbidden', 'error', 5);
-      } else {
-        workflow = result;
-        graph = displayWorkflow(result);
-      }
-    },
-  });
-}
-
-/**
- * Add an existing job to the workflow.
- */
-function runWorkflow() { // eslint-disable-line no-unused-vars
-  if (!workflow.start_job || !workflow.end_job) {
-    alertify.notify('The workflow must have a start AND an end.', 'error', 5);
+  workflow = $("#current-workflow").val();
+  if (workflow) {
+    switchToWorkflow(workflow);
   } else {
-    runJob(workflow.id);
+    alertify.notify(
+      `You must create a workflow in the
+    'Workflow management' page first.`,
+      "error",
+      5
+    );
   }
 }
 
 /**
  * Add an existing job to the workflow.
  */
-function addJobToWorkflow() { // eslint-disable-line no-unused-vars
+// eslint-disable-next-line
+function addJobToWorkflow() {
   if (!workflow) {
-    alertify.notify(`You must create a workflow in the
-    'Workflow management' page first.`, 'error', 5);
-  }
-  if ($('#add-job').parsley().validate()) {
-    $.ajax({
-      type: 'POST',
-      url: `/automation/add_to_workflow/${workflow.id}`,
-      dataType: 'json',
-      data: $('#add-job-form').serialize(),
-      success: function(job) {
-        if (!job) {
-          alertify.notify('HTTP Error 403 – Forbidden', 'error', 5);
-        } else {
-          $('#add-job').modal('hide');
-          if (graph.findNode(job.id).length == 0) {
-            nodes.add(jobToNode(job));
-            saveNode(job);
-            alertify.notify(`Job '${job.name}' created.`, 'success', 5);
-          } else {
-            alertify.notify(`Job already in workflow.`, 'error', 5);
-          }
-        }
-      },
-    });
+    alertify.notify(
+      `You must create a workflow in the
+    'Workflow management' page first.`,
+      "error",
+      5
+    );
   } else {
-    alertify.notify('Some fields are missing.', 'error', 5);
+    const url = `/automation/add_jobs_to_workflow/${workflow.id}`;
+    fCall(url, "#add-job-form", function(result) {
+      lastModified = result.update_time;
+      result.jobs.forEach((job) => {
+        $("#add-job").modal("hide");
+        if (graph.findNode(job.id).length == 0) {
+          nodes.add(jobToNode(job));
+          alertify.notify(
+            `Job '${job.name}' added to the workflow.`,
+            "success",
+            5
+          );
+        } else {
+          alertify.notify(`Job '${job.name}' already in workflow.`, "error", 5);
+        }
+      });
+    });
   }
-}
-
-
-/**
- * Add job to the workflow object (back-end).
- * @param {job} job - job to add to the workflow.
- */
-function saveNode(job) {
-  $.ajax({
-    type: 'POST',
-    url: `/automation/add_node/${workflow.id}/${job.id}`,
-    success: function(job) {
-      if (!job) {
-        alertify.notify('HTTP Error 403 – Forbidden', 'error', 5);
-      } else {
-        const message = `Job '${job.name}' added to the workflow.`;
-        alertify.notify(message, 'success', 5);
-      }
-    },
-  });
 }
 
 /**
@@ -165,17 +169,13 @@ function saveNode(job) {
  * @param {id} id - Id of the job to be deleted.
  */
 function deleteNode(id) {
-  $.ajax({
-    type: 'POST',
-    url: `/automation/delete_node/${workflow.id}/${id}`,
-    success: function(job) {
-      if (!job) {
-        alertify.notify('HTTP Error 403 – Forbidden', 'error', 5);
-      } else {
-        const message = `Job '${job.name}' deleted from the workflow.`;
-        alertify.notify(message, 'success', 5);
-      }
-    },
+  call(`/automation/delete_node/${workflow.id}/${id}`, function(result) {
+    lastModified = result.update_time;
+    alertify.notify(
+      `'${result.job.name}' deleted from the workflow.`,
+      "success",
+      5
+    );
   });
 }
 
@@ -184,18 +184,11 @@ function deleteNode(id) {
  * @param {edge} edge - Edge to add to the workflow.
  */
 function saveEdge(edge) {
-  const param = `${workflow.id}/${edge.type}/${edge.from}/${edge.to}`;
-  $.ajax({
-    type: 'POST',
-    url: `/automation/add_edge/${param}`,
-    success: function(edge) {
-      if (!edge) {
-        alertify.notify('HTTP Error 403 – Forbidden', 'error', 5);
-      } else {
-        alertify.notify('Edge added to the workflow', 'success', 5);
-        edges.add(edgeToEdge(edge));
-      }
-    },
+  const param = `${workflow.id}/${edge.subtype}/${edge.from}/${edge.to}`;
+  call(`/automation/add_edge/${param}`, function(result) {
+    lastModified = result.update_time;
+    edges.add(edgeToEdge(result.edge));
+    graph.addEdgeMode();
   });
 }
 
@@ -204,16 +197,8 @@ function saveEdge(edge) {
  * @param {edgeId} edgeId - Id of the edge to be deleted.
  */
 function deleteEdge(edgeId) {
-  $.ajax({
-    type: 'POST',
-    url: `/automation/delete_edge/${workflow.id}/${edgeId}`,
-    success: function(edge) {
-      if (!edge) {
-        alertify.notify('HTTP Error 403 – Forbidden', 'error', 5);
-      } else {
-        alertify.notify('Edge deleted the workflow', 'success', 5);
-      }
-    },
+  call(`/automation/delete_edge/${workflow.id}/${edgeId}`, (updateTime) => {
+    lastModified = updateTime;
   });
 }
 
@@ -224,12 +209,10 @@ function deleteEdge(edgeId) {
  */
 function jobToNode(job) {
   let color;
-  if (workflow.start_job && workflow.start_job.id == job.id) {
-    color = 'green';
-  } else if (workflow.end_job && workflow.end_job.id == job.id) {
-    color = 'red';
+  if (job.name == "Start" || job.name == "End") {
+    color = "pink";
   } else {
-    color = '#D2E5FF';
+    color = "#D2E5FF";
   }
   return {
     id: job.id,
@@ -249,76 +232,41 @@ function jobToNode(job) {
 function edgeToEdge(edge) {
   return {
     id: edge.id,
-    label: edge.type ? 'Success' : 'Failure',
-    type: edge.type,
-    from: edge.source.id,
-    to: edge.destination.id,
-    color: {color: edge.type ? 'green' : 'red'},
-    arrows: {to: {enabled: true}},
+    label: capitalize(edge.subtype),
+    type: edge.subtype,
+    from: edge.source_id,
+    to: edge.destination_id,
+    smooth: {
+      type: "curvedCW",
+      roundness:
+        edge.subtype == "success" ? 0.1 : edge.subtype == "failure" ? -0.1 : 0,
+    },
+    color: {
+      color:
+        edge.subtype == "success"
+          ? "green"
+          : edge.subtype == "failure"
+          ? "red"
+          : "blue",
+    },
+    arrows: { to: { enabled: true } },
   };
-}
-
-/**
- * Set a job as start of the workflow.
- */
-function startJob() {
-  let start = nodes.get(graph.getSelectedNodes()[0]);
-  if (start.length == 0 || !start.id) {
-    alertify.notify('You must select a job first.', 'error', 5);
-  } else {
-    if (workflow.start_job) {
-      nodes.update({id: workflow.start_job.id, color: '#D2E5FF'});
-    }
-    $.ajax({
-      type: 'POST',
-      url: `/automation/set_as_start/${workflow.id}/${start.id}`,
-      success: function(result) {
-        if (!result) {
-          alertify.notify('HTTP Error 403 – Forbidden', 'error', 5);
-        } else {
-          nodes.update({id: start.id, color: 'green'});
-          workflow.start_job = start;
-        }
-      },
-    });
-    alertify.notify(`Job ${start.label} set as start.`, 'success', 5);
-  }
-}
-
-/**
- * Set a job as end of the workflow.
- */
-function endJob() {
-  let end = nodes.get(graph.getSelectedNodes()[0]);
-  if (end.length == 0 || !end.id) {
-    alertify.notify('You must select a job first.', 'error', 5);
-  } else {
-    if (workflow.end_job) {
-      nodes.update({id: workflow.end_job.id, color: '#D2E5FF'});
-    }
-    $.ajax({
-      type: 'POST',
-      url: `/automation/set_as_end/${workflow.id}/${end.id}`,
-      success: function(result) {
-        if (!result) {
-          alertify.notify('HTTP Error 403 – Forbidden', 'error', 5);
-        } else {
-          nodes.update({id: end.id, color: 'red'});
-          workflow.end_job = end;
-        }
-      },
-    });
-    alertify.notify(`Job ${end.label} set as end.`, 'success', 5);
-  }
 }
 
 /**
  * Delete selected nodes and edges.
  */
 function deleteSelection() {
-  graph.getSelectedNodes().map((node) => deleteNode(node));
-  graph.getSelectedEdges().map((edge) => deleteEdge(edge));
-  graph.deleteSelected();
+  const node = graph.getSelectedNodes()[0];
+  if (node != 1 && node != 2) {
+    if (node) {
+      deleteNode(node);
+    }
+    graph.getSelectedEdges().map((edge) => deleteEdge(edge));
+    graph.deleteSelected();
+  } else {
+    alertify.notify("Start and End cannot be deleted", "error", 5);
+  }
 }
 
 /**
@@ -326,34 +274,24 @@ function deleteSelection() {
  * @param {mode} mode - Mode to switch to.
  */
 function switchMode(mode) {
-  if (mode == 'success' || mode == 'failure') {
+  if (["success", "failure", "prerequisite"].includes(mode)) {
     edgeType = mode;
     graph.addEdgeMode();
-    alertify.notify(`Mode: creation of ${mode} edge.`, 'success', 5);
+    alertify.notify(`Mode: creation of ${mode} edge.`, "success", 5);
   } else {
     graph.addNodeMode();
-    alertify.notify('Mode: node motion.', 'success', 5);
+    alertify.notify("Mode: node motion.", "success", 5);
   }
-  // close the bootstrap submenu for layers
-  $('.dropdown-submenu a.menu-layer').next('ul').toggle();
+  $(".dropdown-submenu a.menu-layer")
+    .next("ul")
+    .toggle();
 }
 
-$('#workflow-name').on('change', function() {
-  savePositions();
-  $.ajax({
-    type: 'POST',
-    url: `/automation/get/${this.value}`,
-    dataType: 'json',
-    success: function(result) {
-      if (!result) {
-        alertify.notify('HTTP Error 403 – Forbidden', 'error', 5);
-      } else {
-        workflow = result;
-        graph = displayWorkflow(result);
-        alertify.notify(`Workflow '${workflow.name}' displayed.`, 'success', 5);
-      }
-    },
-  });
+$("#current-workflow").on("change", function() {
+  $("#add_jobs").append(
+    `<option value='${workflow.id}'>${workflow.name}</option>`
+  );
+  switchToWorkflow(this.value);
 });
 
 /**
@@ -361,58 +299,47 @@ $('#workflow-name').on('change', function() {
  */
 function savePositions() {
   $.ajax({
-    type: 'POST',
+    type: "POST",
     url: `/automation/save_positions/${workflow.id}`,
-    dataType: 'json',
-    contentType: 'application/json;charset=UTF-8',
-    data: JSON.stringify(graph.getPositions(), null, '\t'),
-    success: function(result) {
-      if (!result) {
-        alertify.notify('HTTP Error 403 – Forbidden', 'error', 5);
+    dataType: "json",
+    contentType: "application/json;charset=UTF-8",
+    data: JSON.stringify(graph.getPositions(), null, "\t"),
+    success: function(updateTime) {
+      if (updateTime) {
+        lastModified = updateTime;
+      } else {
+        alertify.notify("HTTP Error 403 – Forbidden", "error", 5);
       }
     },
   });
 }
 
-/**
- * Show workflow logs
- */
-function showWorkflowLogs() {
-  showLogs(workflow.id);
-}
-
-/**
- * Compare workflow logs
- */
-function compareWorkflowLogs() {
-  compareLogs(workflow.id);
-}
-
 const action = {
-  'Run Workflow': runWorkflow,
-  'Edit': editService,
-  'Run': runJob,
-  'Logs': showLogs,
-  'Compare Logs': compareLogs,
-  'Workflow Logs': showWorkflowLogs,
-  'Compare Workflow Logs': compareWorkflowLogs,
-  'Set as start': startJob,
-  'Set as end': endJob,
-  'Add Service or Workflow': partial(showModal, 'add-job'),
-  'Delete': deleteSelection,
-  'Create "Success" edge': partial(switchMode, 'success'),
-  'Create "Failure" edge': partial(switchMode, 'failure'),
-  'Move Nodes': partial(switchMode, 'node'),
+  "Run Workflow": runWorkflow,
+  Edit: (jobId) => editJob(nodes.get(jobId)),
+  Run: runJob,
+  Results: showResults,
+  "Edit Workflow": () => showTypeModal("workflow", workflow.id),
+  "Workflow Results": () => showResults(workflow.id),
+  "Workflow Logs": () => showLogs(workflow.id),
+  "Add Service or Workflow": partial(showModal, "add-job"),
+  Delete: deleteSelection,
+  "Create 'Success' edge": partial(switchMode, "success"),
+  "Create 'Failure' edge": partial(switchMode, "failure"),
+  "Create 'Prerequisite' edge": partial(switchMode, "prerequisite"),
+  "Move Nodes": partial(switchMode, "node"),
 };
 
-$('.dropdown-submenu a.menu-submenu').on('click', function(e) {
-  $(this).next('ul').toggle();
+$(".dropdown-submenu a.menu-submenu").on("click", function(e) {
+  $(this)
+    .next("ul")
+    .toggle();
   e.stopPropagation();
   e.preventDefault();
 });
 
-$('#network').contextMenu({
-  menuSelector: '#contextMenu',
+$("#network").contextMenu({
+  menuSelector: "#contextMenu",
   menuSelected: function(invokedOn, selectedMenu) {
     const row = selectedMenu.text();
     action[row](selectedNode);
@@ -420,26 +347,86 @@ $('#network').contextMenu({
 });
 
 /**
- * Get Workflow Status.
+ * Start the workflow.
  */
-function getWorkflowStatus() {
-  if (workflow) {
-    $.ajax({
-      type: 'POST',
-      url: `/automation/get/${workflow.id}`,
-      dataType: 'json',
-      success: function(result) {
-        $('#status').text(`Status: ${result.status}.`);
-        const job = result.current_job ? result.current_job.name : 'None';
-        $('#current-job').text(`Current job: ${job}.`);
-      },
-    });
-  }
-  setTimeout(getWorkflowStatus, 2000);
+function runWorkflow() {
+  workflow.jobs.forEach((job) => colorJob(job.id, "#D2E5FF"));
+  runJob(workflow.id);
 }
 
-getWorkflowStatus();
+/**
+ * Get Workflow State.
+ * @param {id} id - Workflow Id.
+ * @param {color} color - Node color.
+ */
+function colorJob(id, color) {
+  if (id != 1 && id != 2) {
+    nodes.update({ id: id, color: color });
+  }
+}
 
-$(window).bind('beforeunload', function() {
-  savePositions();
-});
+/**
+ * Get Job State.
+ * @param {id} id - Job Id.
+ */
+// eslint-disable-next-line
+function getJobState(id) {
+  call(`/get/service/${id}`, function(service) {
+    if (service.is_running) {
+      colorJob(id, "#89CFF0");
+      $("#status").text("Status: Running.");
+      $("#current-job").text(`Current job: ${service.name}.`);
+      setTimeout(partial(getJobState, id), 1500);
+    } else {
+      $("#status").text("Status: Idle.");
+      $("#current-job").empty();
+      colorJob(id, "#D2E5FF");
+    }
+  });
+}
+
+/**
+ * Get Workflow State.
+ */
+function getWorkflowState() {
+  if (workflow && workflow.id) {
+    call(`/get/workflow/${workflow.id}`, function(wf) {
+      if (wf.last_modified !== lastModified) {
+        displayWorkflow(wf);
+      }
+      $("#status").text(`Status: ${wf.status}.`);
+      if (wf.id == workflow.id) {
+        if (Object.keys(wf.state).length !== 0) {
+          if (wf.state.current_device) {
+            $("#current-device").text(
+              `Current device: ${wf.state.current_device}.`
+            );
+          }
+          if (wf.state.current_job) {
+            colorJob(wf.state.current_job.id, "#89CFF0");
+            $("#current-job").text(
+              `Current job: ${wf.state.current_job.name}.`
+            );
+          } else {
+            $("#current-device,#current-job").empty();
+          }
+          if (wf.state.jobs) {
+            $.each(wf.state.jobs, (id, success) => {
+              colorJob(id, success ? "#32cd32" : "#FF6666");
+            });
+          }
+        } else {
+          $("#current-device,#current-job").empty();
+          wf.jobs.forEach((job) => colorJob(job.id, "#D2E5FF"));
+        }
+        setTimeout(getWorkflowState, wf.is_running ? 700 : 15000);
+      }
+    });
+  }
+}
+
+(function() {
+  doc("https://enms.readthedocs.io/en/latest/workflows/index.html");
+  convertSelect("#add-jobs", "#workflow-devices", "#workflow-pools");
+  getWorkflowState();
+})();

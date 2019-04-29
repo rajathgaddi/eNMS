@@ -1,135 +1,50 @@
 /*
 global
 alertify: false
-fields: false
-workflows: false
+convertSelect: false
+doc: false
+fCall: false
+initTable: false
+refreshTable: false
+showTypeModal: false
 */
 
-const table = $('#table').DataTable(); // eslint-disable-line new-cap
-
-(function() {
-  $('#devices').fSelect({
-    placeholder: 'Select devices',
-    numDisplayed: 5,
-    overflowText: '{n} devices selected',
-    noResultsText: 'No results found',
-  });
-})();
+const toExclude = ["Logs", "Results", "Run", "Edit", "Duplicate", "Delete"];
+// eslint-disable-next-line no-unused-vars
+let table = initTable("workflow", "workflow", toExclude);
 
 /**
- * Add workflow to the datatable.
- * @param {mode} mode - Create or edit.
- * @param {properties} properties - Properties of the workflow.
+ * Display instance modal for editing.
+ * @param {id} id - Instance ID.
  */
-function addWorkflow(mode, properties) {
-  let values = [];
-  for (let i = 0; i < fields.length; i++) {
-    values.push(`${properties[fields[i]]}`);
-  }
-  values.push(
-    `<button type="button" class="btn btn-info btn-xs"
-    onclick="showLogs('${properties.id}')"></i>Logs</a></button>`,
-    `<button type="button" class="btn btn-info btn-xs"
-    onclick="compareLogs('${properties.id}')"></i>Compare</a></button>`,
-    `<button type="button" class="btn btn-info btn-xs"
-    onclick="showWorkflowModal('${properties.id}')">Edit</button>`,
-    `<button type="button" class="btn btn-success btn-xs"
-    onclick="runJob('${properties.id}')">Run</button>`,
-    `<button type="button" class="btn btn-danger btn-xs"
-    onclick="deleteWorkflow('${properties.id}')">Delete</button>`
+// eslint-disable-next-line
+function showWorkflowModalDuplicate(id) {
+  $("#workflow-button").attr("onclick", `duplicateWorkflow(${id})`);
+  showTypeModal("workflow", id, true);
+}
+
+/**
+ * Display instance modal for editing.
+ * @param {id} id - Instance ID.
+ */
+// eslint-disable-next-line
+function duplicateWorkflow(id) {
+  $("#edit-workflow").modal("hide");
+  fCall(
+    `/automation/duplicate_workflow/${id}`,
+    "#edit-workflow-form",
+    (workflow) => {
+      table.ajax.reload(null, false);
+      alertify.notify("Workflow successfully duplicated", "success", 5);
+    }
   );
-  if (mode == 'edit') {
-    table.row($(`#${properties.id}`)).data(values);
-  } else {
-    const rowNode = table.row.add(values).draw(false).node();
-    $(rowNode).attr('id', `${properties.id}`);
-  }
 }
 
 (function() {
-  for (let i = 0; i < workflows.length; i++) {
-    addWorkflow('create', workflows[i]);
-  }
+  doc("https://enms.readthedocs.io/en/latest/workflows/index.html");
+  convertSelect("#workflow-devices", "#workflow-pools");
+  $("#edit-workflow").on("hidden.bs.modal", function() {
+    $("#workflow-button").attr("onclick", "processData('workflow')");
+  });
+  refreshTable(5000);
 })();
-
-/**
- * Open the workflow modal for creation.
- */
-function showModal() { // eslint-disable-line no-unused-vars
-  $('#title').text('Create a New Workflow');
-  $('#edit-form').trigger('reset');
-  $('#edit').modal('show');
-}
-
-/**
- * Open the workflow modal for editing.
- * @param {id} id - Id of the workflow to edit.
- */
-function showWorkflowModal(id) { // eslint-disable-line no-unused-vars
-  $('#title').text(`Edit Workflow`);
-  $.ajax({
-    type: 'POST',
-    url: `/automation/get/${id}`,
-    success: function(properties) {
-      if (!properties) {
-        alertify.notify('HTTP Error 403 – Forbidden', 'error', 5);
-      } else {
-        for (const [property, value] of Object.entries(properties)) {
-          $(`#${property}`).val(value);
-        }
-        $('.fs-option').removeClass('selected');
-        $('.fs-label').text('Select devices');
-        properties.devices.map(
-          (n) => $(`.fs-option[data-value='${n.id}']`).click()
-        );
-        $('#pools').val(properties.pools.map((p) => p.id));
-      }
-    },
-  });
-  $(`#edit`).modal('show');
-}
-
-/**
- * Edit a workflow.
- */
-function editObject() { // eslint-disable-line no-unused-vars
-  if ($('#edit-form').parsley().validate() ) {
-    $.ajax({
-      type: 'POST',
-      url: `/automation/edit_workflow`,
-      dataType: 'json',
-      data: $('#edit-form').serialize(),
-      success: function(properties) {
-        if (!properties) {
-          alertify.notify('HTTP Error 403 – Forbidden', 'error', 5);
-        } else {
-          const mode = $('#title').text().startsWith('Edit') ? 'edit' : 'add';
-          addWorkflow(mode, properties);
-          const message = `Workflow ${properties.name};
-          ${mode == 'edit' ? 'edited' : 'created'}.`;
-          alertify.notify(message, 'success', 5);
-        }
-      },
-    });
-    $(`#edit`).modal('hide');
-  }
-}
-
-/**
- * Delete a workflow.
- * @param {id} id - Id of the workflow to delete.
- */
-function deleteWorkflow(id) { // eslint-disable-line no-unused-vars
-  $.ajax({
-    type: 'POST',
-    url: `/automation/delete_workflow/${id}`,
-    success: function(workflow) {
-      if (!workflow) {
-        alertify.notify('HTTP Error 403 – Forbidden', 'error', 5);
-      } else {
-        table.row($(`#${id}`)).remove().draw(false);
-        alertify.notify(`Workflow '${workflow.name}' deleted.`, 'error', 5);
-      }
-    },
-  });
-}

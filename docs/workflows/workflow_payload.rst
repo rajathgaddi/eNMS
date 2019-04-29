@@ -5,13 +5,9 @@ Workflow Payload
 Job dependency
 --------------
 
-One of the property of workflows in eNMS is that a job will not start unless all of its "predecessors" jobs have been executed.
+If a job ``A`` must be executed before a job ``B`` in the workflow, eNMS must be made aware of that dependency by creating a  ``Prerequisite`` edge.
 
-In the example below, the job ``process_payload1`` has two "predecessors" jobs:
-  - ``get_interfaces``
-  - ``get_config``
-
-It will not run until ``get_interfaces`` and ``get_config`` have been executed.
+In the example below, the job ``process_payload1`` uses the results from ``get_facts`` and ``get_interfaces``. By creating two prerequisite edges (from ``get_facts`` to ``process_payload1`` and from ``get_interfaces`` to ``process_payload1``), we ensure that eNMS will not run ``process_payload1`` until both ``get_interfaces`` and ``get_config`` have been executed.
 
 .. image:: /_static/workflows/other_workflows/payload_transfer_workflow.png
    :alt: Payload Transfer Workflow
@@ -112,7 +108,7 @@ Consequently, the ``payload`` variable received by ``process_payload1`` will loo
     etc...
   }
 
-If we want to use the results of the Napalm getters in the final job ``process_payload1``, here's what the the ``job`` function of ``process_payload1`` could look like:
+If we want to use the results of the Napalm getters in the final job ``process_payload1``, here's what the ``job`` function of ``process_payload1`` could look like:
 
 ::
 
@@ -135,6 +131,8 @@ If we want to use the results of the Napalm getters in the final job ``process_p
       }
 
 This ``job`` function reuses the Napalm getters of two jobs of the workflow (one of which, ``get_facts``, is not a direct predecessor of ``process_payload1``) to create new variables and inject them in the results.
+
+.. tip:: You can run a job directly from the Workflow Builder to see if it passes (and rerun if it fails), and also which payload the job returns.
 
 Use of a SwissArmyKnifeService instance to process the payload
 --------------------------------------------------------------

@@ -17,31 +17,25 @@
 
 # Importing SQL Alchemy column types to handle all of the types of
 # form additions that the user could have.
-from sqlalchemy import (
-    Boolean,
-    Column,
-    Float,
-    ForeignKey,
-    Integer,
-    PickleType,
-    String
-)
+from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, PickleType, String
 from sqlalchemy.ext.mutable import MutableDict, MutableList
 
-from eNMS.automation.models import Service, service_classes
+from eNMS.automation.models import Service
+from eNMS.classes import service_classes
 
 
 class ExampleService(Service):
 
-    __tablename__ = 'ExampleService'
+    __tablename__ = "ExampleService"
 
-    id = Column(Integer, ForeignKey('Service.id'), primary_key=True)
-    has_targets = False
-    # the "vendor" property will be displayed as a drop-down list, because
-    # there is an associated "vendor_values" property in the class.
-    vendor = Column(String)
-    # the "operating_system" property will be displayed as a text area.
-    operating_system = Column(String)
+    id = Column(Integer, ForeignKey("Service.id"), primary_key=True)
+    # the "string1" property will be displayed as a drop-down list, because
+    # there is an associated "string1_values" property in the class.
+    string1 = Column(String(255))
+    # the "string2" property will be displayed as a text area.
+    string2 = Column(String(255))
+    string2_name = "String 2 !"
+    string2_length = 5
     # Text area
     an_integer = Column(Integer)
     # Text area
@@ -53,31 +47,30 @@ class ExampleService(Service):
     a_dict = Column(MutableDict.as_mutable(PickleType))
     # "boolean1" and "boolean2" will be displayed as tick boxes in the GUI.
     boolean1 = Column(Boolean)
+    boolean1_name = "Boolean N°1"
     boolean2 = Column(Boolean)
 
     # these values will be displayed in a single selection drop-down list,
     # for the property "a_list".
-    vendor_values = [
-        ('cisco', 'Cisco'),
-        ('juniper', 'Juniper'),
-        ('arista', 'Arista')
-    ]
+    string1_values = [("cisco", "Cisco"), ("juniper", "Juniper"), ("arista", "Arista")]
 
     # these values will be displayed in a multiple selection list,
     # for the property "a_list".
     a_list_values = [
-        ('value1', 'Value 1'),
-        ('value2', 'Value 2'),
-        ('value3', 'Value 3')
+        ("value1", "Value 1"),
+        ("value2", "Value 2"),
+        ("value3", "Value 3"),
     ]
 
-    __mapper_args__ = {
-        'polymorphic_identity': 'example_service',
-    }
+    __mapper_args__ = {"polymorphic_identity": "ExampleService"}
 
-    def job(self, payload):
+    # Some services will take action or interrogate a device. The job method
+    # can also take device as a parameter for these types of services.
+    # def job(self, device, payload):
+    def job(self, payload: dict) -> dict:
+        self.logs.append(f"Real-time logs displayed when the service is running.")
         # The "job" function is called when the service is executed.
-        # The parameters of the service can be accessed with self (self.vendor,
+        # The parameters of the service can be accessed with self (self.string1,
         # self.boolean1, etc)
         # You can look at how default services (netmiko, napalm, etc.) are
         # implemented in the /services subfolders (/netmiko, /napalm, etc).
@@ -86,7 +79,7 @@ class ExampleService(Service):
         # the execution of the service was a success or a failure.
         # In a workflow, the "success" value will determine whether to move
         # forward with a "Success" edge or a "Failure" edge.
-        return {'success': True, 'result': 'example'}
+        return {"success": True, "result": "example"}
 
 
-service_classes['example_service'] = ExampleService
+service_classes["ExampleService"] = ExampleService

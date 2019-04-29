@@ -1,31 +1,30 @@
 from sqlalchemy import Column, ForeignKey, Integer, String
 
-from eNMS.automation.helpers import napalm_connection
-from eNMS.automation.models import Service, service_classes
+from eNMS.automation.models import Service
+from eNMS.classes import service_classes
+from eNMS.inventory.models import Device
 
 
 class ConfigureBgpService(Service):
 
-    __tablename__ = 'ConfigureBgpService'
+    __tablename__ = "ConfigureBgpService"
 
-    id = Column(Integer, ForeignKey('Service.id'), primary_key=True)
+    id = Column(Integer, ForeignKey("Service.id"), primary_key=True)
     has_targets = True
     local_as = Column(Integer)
-    loopback = Column(String)
-    loopback_ip = Column(String)
-    neighbor_ip = Column(String)
+    loopback = Column(String(255))
+    loopback_ip = Column(String(255))
+    neighbor_ip = Column(String(255))
     remote_as = Column(Integer)
-    vrf_name = Column(String)
-    driver = 'ios'
+    vrf_name = Column(String(255))
+    driver = "ios"
 
-    __mapper_args__ = {
-        'polymorphic_identity': 'configure_bgp_service',
-    }
+    __mapper_args__ = {"polymorphic_identity": "ConfigureBgpService"}
 
-    def job(self, device, payload):
-        napalm_driver = napalm_connection(self, device)
+    def job(self, payload: dict, device: Device) -> dict:
+        napalm_driver = self.napalm_connection(device)
         napalm_driver.open()
-        config = f'''
+        config = f"""
             ip vrf {self.vrf_name}
             rd {self.local_as}:235
             route-target import {self.local_as}:410
@@ -42,12 +41,13 @@ class ConfigureBgpService(Service):
             neighbor {self.neighbor_ip} send-community both
             neighbor {self.neighbor_ip} as-override
             exit-address-family
-        '''
-        config = '\n'.join(config.splitlines())
-        getattr(napalm_driver, 'load_merge_candidate')(config=config)
+        """
+        config = "\n".join(config.splitlines())
+        self.logs.append(f"Pushing BGP configuration on {device.name} (Napalm)")
+        getattr(napalm_driver, "load_merge_candidate")(config=config)
         napalm_driver.commit_config()
         napalm_driver.close()
-        return {'success': True, 'result': f'Config push ({config})'}
+        return {"success": True, "result": f"Config push ({config})"}
 
 
-service_classes['configure_bgp_service'] = ConfigureBgpService
+service_classes["ConfigureBgpService"] = ConfigureBgpService

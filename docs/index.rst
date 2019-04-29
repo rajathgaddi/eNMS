@@ -6,21 +6,21 @@ General
 
    base/index
 
-Inventory 
+Administration
+==============
+
+.. toctree::
+   :maxdepth: 2
+
+   administration/index
+
+Inventory
 =========
 
 .. toctree::
    :maxdepth: 2
 
    inventory/index
-
-Security
-========
-
-.. toctree::
-   :maxdepth: 2
-
-   security/index
 
 Views
 =====

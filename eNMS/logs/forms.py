@@ -1,21 +1,20 @@
 from flask_wtf import FlaskForm
-from wtforms import BooleanField, HiddenField, SelectMultipleField, TextField
+from wtforms import BooleanField, HiddenField, StringField
+
+from eNMS.models import MultipleObjectField
 
 
-def configure_form(cls):
-    cls.properties = ('source', 'content')
-    for property in ('source', 'content'):
-        setattr(cls, property, TextField(property))
-        setattr(cls, property + 'regex', BooleanField('Regex'))
+def configure_form(cls: FlaskForm) -> FlaskForm:
+    cls.properties = ("source_ip", "content")
+    for property in ("source_ip", "content"):
+        setattr(cls, property, StringField(property))
+        setattr(cls, property + "_regex", BooleanField("Regex"))
     return cls
 
 
 @configure_form
-class LogFilteringForm(FlaskForm):
-    pass
-
-
-class LogAutomationForm(LogFilteringForm):
+class LogAutomationForm(FlaskForm):
     id = HiddenField()
-    name = TextField()
-    jobs = SelectMultipleField()
+    list_fields = HiddenField(default="jobs")
+    name = StringField()
+    jobs = MultipleObjectField("Job")

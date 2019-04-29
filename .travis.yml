@@ -12,17 +12,16 @@ matrix:
       install:
         - pip install -r requirements_dev.txt
       script:
+        - black --check --verbose .
         - flake8
-        - sudo apt-get update
-        - sudo apt-get install google-chrome-stable
-        - sudo apt-get install chromium-browser
-        - sudo chmod a+x ./tests/chromedriver
+        - mypy .
         - coverage run --source=./eNMS -m pytest
       after_success:
         - coveralls
 
     - language: node_js
-      node_js: 
+      node_js:
         - "node"
-      script: 
+      script:
+        - npm run prettier
         - npm run lint

@@ -3,94 +3,101 @@ from sqlalchemy import Boolean, Column, Integer, String
 from sqlalchemy.orm import relationship
 from socketserver import BaseRequestHandler, UDPServer
 from threading import Thread
+from typing import List
 
-from eNMS import db, scheduler
-from eNMS.base.associations import job_log_rule_table
-from eNMS.base.custom_base import CustomBase
+from eNMS.extensions import controller, db
+from eNMS.associations import job_log_rule_table, log_rule_log_table
+from eNMS.models import Base
+
+
+class Log(Base):
+
+    __tablename__ = type = "Log"
+    id = Column(Integer, primary_key=True)
+    source_ip = Column(String(255))
+    content = Column(String(255))
+    log_rules = relationship(
+        "LogRule", secondary=log_rule_log_table, back_populates="logs"
+    )
+
+    def generate_row(self, table: str) -> List[str]:
+        return [
+            f"""<button type="button" class="btn btn-danger btn-xs"
+            onclick="deleteInstance('Log', '{self.id}')">Delete</button>"""
+        ]
+
+    def __repr__(self) -> str:
+        return self.content
+
+
+class LogRule(Base):
+
+    __tablename__ = type = "LogRule"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255), unique=True)
+    source_ip = Column(String(255))
+    source_ip_regex = Column(Boolean)
+    content = Column(String(255))
+    content_regex = Column(Boolean)
+    logs = relationship("Log", secondary=log_rule_log_table, back_populates="log_rules")
+    jobs = relationship("Job", secondary=job_log_rule_table, back_populates="log_rules")
+
+    def generate_row(self, table: str) -> List[str]:
+        return [
+            f"""<button type="button" class="btn btn-info btn-xs"
+            onclick="showTypeModal('logrule', '{self.id}')">
+            Edit</button>""",
+            f"""<button type="button" class="btn btn-danger btn-xs"
+            onclick="deleteInstance('logrule', '{self.id}')">
+            Delete</button>""",
+        ]
 
 
 class SyslogUDPHandler(BaseRequestHandler):
-
-    def handle(self):
-        with scheduler.app.app_context():
-            data = bytes.decode(self.request[0].strip())
+    def handle(self) -> None:
+        with controller.app.app_context():
+            data = str(bytes.decode(self.request[0].strip()))
             source, _ = self.client_address
-            log = Log(source, str(data))
-            db.session.add(log)
-            db.session.commit()
+            log_rules = []
+            for log_rule in LogRule.query.all():
+                source_match = (
+                    search(log_rule.source_ip, source)
+                    if log_rule.source_ip_regex
+                    else log_rule.source_ip in source
+                )
+                content_match = (
+                    search(log_rule.content, data)
+                    if log_rule.content_regex
+                    else log_rule.content in data
+                )
+                if source_match and content_match:
+                    log_rules.append(log_rule)
+                    for job in log_rule.jobs:
+                        job.try_run()
+            if log_rules:
+                log = Log(**{"source": source, "date": data, "log_rules": log_rules})
+                db.session.add(log)
+                db.session.commit()
 
 
-class SyslogServer(CustomBase):
+class SyslogServer(Base):
 
-    __tablename__ = 'SyslogServer'
-
+    __tablename__ = type = "SyslogServer"
     id = Column(Integer, primary_key=True)
-    ip_address = Column(String)
+    ip_address = Column(String(255))
     port = Column(Integer)
 
-    def __init__(self, **kwargs):
-        self.ip_address = kwargs['ip_address']
-        self.port = int(kwargs['port'])
+    def __init__(self, ip_address: str, port: int) -> None:
+        self.ip_address = ip_address
+        self.port = port
         self.start()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.ip_address
 
-    def start(self):
+    def start(self) -> None:
         UDPServer.allow_reuse_address = True
         self.server = UDPServer((self.ip_address, self.port), SyslogUDPHandler)
         th = Thread(target=self.server.serve_forever)
         th.daemon = True
         th.start()
-
-
-class Log(CustomBase):
-
-    __tablename__ = 'Log'
-
-    id = Column(Integer, primary_key=True)
-    source = Column(String)
-    content = Column(String)
-
-    def __init__(self, source, content):
-        self.source = source
-        self.content = content
-        for log_rule in LogRule.query.all():
-            trigger_jobs = all(
-                getattr(log_rule, prop) in getattr(self, prop)
-                if not getattr(log_rule, prop + 'regex')
-                else search(getattr(log_rule, prop), getattr(self, prop))
-                for prop in ('source', 'content') if getattr(log_rule, prop)
-            )
-            if trigger_jobs:
-                for job in log_rule.jobs:
-                    job.run()
-
-    def __repr__(self):
-        return self.content
-
-
-class LogRule(CustomBase):
-
-    __tablename__ = 'LogRule'
-
-    id = Column(Integer, primary_key=True)
-    name = Column(String)
-    source = Column(String)
-    sourceregex = Column(Boolean)
-    content = Column(String)
-    contentregex = Column(Boolean)
-    jobs = relationship(
-        'Job',
-        secondary=job_log_rule_table,
-        back_populates='log_rules'
-    )
-
-    def __repr__(self):
-        return self.content
-
-    @property
-    def serialized(self):
-        properties = self.properties
-        properties['jobs'] = [obj.properties for obj in getattr(self, 'jobs')]
-        return properties

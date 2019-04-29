@@ -1,281 +1,225 @@
-from flask import (
-    abort,
-    current_app as app,
-    jsonify,
-    redirect,
-    render_template,
-    request,
-    url_for
-)
-from flask_login import (
-    current_user,
-    login_required,
-    login_user,
-    logout_user
-)
-from pynetbox import api as netbox_api
-from sqlalchemy.orm.exc import NoResultFound
-from tacacs_plus.client import TACACSClient
-from tacacs_plus.flags import TAC_PLUS_AUTHEN_TYPE_ASCII
-from requests import get
+from datetime import datetime
+from flask import abort, current_app as app, redirect, render_template, request, url_for
+from flask_login import current_user, login_user, logout_user
+from ipaddress import IPv4Network
+from json import loads
+from ldap3 import Connection, NTLM, SUBTREE
+from logging import info
+from os import listdir
+from requests import get as rest_get
+from requests.exceptions import ConnectionError
+from typing import Union
+from werkzeug.wrappers import Response
 
-from eNMS import db
-from eNMS.admin import blueprint
+from eNMS.extensions import (
+    db,
+    ldap_client,
+    scheduler,
+    tacacs_client,
+    USE_LDAP,
+    USE_TACACS,
+)
+from eNMS.admin import bp
 from eNMS.admin.forms import (
+    AddInstance,
     AddUser,
-    CreateAccountForm,
+    AdministrationForm,
+    DatabaseHelpersForm,
     LoginForm,
-    GeographicalParametersForm,
-    GottyParametersForm,
-    NetboxForm,
-    OpenNmsForm,
-    SyslogServerForm,
-    TacacsServerForm,
+    MigrationsForm,
 )
-from eNMS.admin.models import (
-    Parameters,
-    User,
-    TacacsServer
+from eNMS.admin.functions import migrate_export, migrate_import
+from eNMS.functions import (
+    delete_all,
+    fetch_all,
+    get,
+    get_one,
+    post,
+    factory,
+    fetch,
+    serialize,
 )
-from eNMS.base.custom_base import factory
-from eNMS.base.helpers import permission_required, retrieve, vault_helper
-from eNMS.base.properties import pretty_names, user_public_properties
-from eNMS.logs.models import SyslogServer
-from eNMS.objects.models import Device
+from eNMS.properties import instance_table_properties, user_table_properties
 
 
-@blueprint.route('/user_management')
-@login_required
-@permission_required('Admin Section')
-def users():
-    form = AddUser(request.form)
-    return render_template(
-        'user_management.html',
-        fields=user_public_properties,
-        names=pretty_names,
-        users=User.serialize(),
-        form=form
+@get(bp, "/user_management", "View")
+def user_management() -> dict:
+    return dict(
+        fields=user_table_properties,
+        users=serialize("User"),
+        form=AddUser(request.form),
     )
 
 
-@blueprint.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        name = str(request.form['name'])
-        user_password = str(request.form['password'])
-        user = retrieve(User, name=name)
-        if user:
-            if app.config['USE_VAULT']:
-                pwd = vault_helper(app, f'user/{user.name}')['password']
-            else:
-                pwd = user.password
-            if user_password == pwd:
-                login_user(user)
-                return redirect(url_for('base_blueprint.dashboard'))
-        else:
-            try:
-                # tacacs_plus does not support py2 unicode, hence the
-                # conversion to string.
-                # TACACSClient cannot be saved directly to session
-                # as it is not serializable: this temporary fixes will create
-                # a new instance of TACACSClient at each TACACS connection
-                # attemp: clearly suboptimal, to be improved later.
-                tacacs_server = db.session.query(TacacsServer).one()
-                tacacs_client = TACACSClient(
-                    str(tacacs_server.ip_address),
-                    int(tacacs_server.port),
-                    str(tacacs_server.password)
-                )
-                if tacacs_client.authenticate(
-                    name,
-                    user_password,
-                    TAC_PLUS_AUTHEN_TYPE_ASCII
-                ).valid:
-                    user = User(name=name, password=user_password)
-                    db.session.add(user)
-                    db.session.commit()
+@get(bp, "/administration", "View")
+def administration() -> dict:
+    return dict(
+        form=AdministrationForm(request.form),
+        parameters=get_one("Parameters").serialized,
+    )
+
+
+@get(bp, "/advanced", "View")
+def advanced() -> dict:
+    return dict(
+        database_helpers_form=DatabaseHelpersForm(request.form),
+        migrations_form=MigrationsForm(request.form),
+        folders=listdir(app.path / "migrations"),
+    )
+
+
+@get(bp, "/instance_management", "View")
+def instance_management() -> dict:
+    return dict(
+        fields=instance_table_properties,
+        instances=serialize("Instance"),
+        form=AddInstance(request.form),
+    )
+
+
+@bp.route("/login", methods=["GET", "POST"])
+def login() -> Union[Response, str]:
+    if request.method == "POST":
+        name, password = request.form["name"], request.form["password"]
+        try:
+            if request.form["authentication_method"] == "Local User":
+                user = fetch("User", name=name)
+                if user and password == user.password:
                     login_user(user)
-                    return redirect(url_for('base_blueprint.dashboard'))
-            except NoResultFound:
-                pass
-        return render_template('errors/page_403.html')
+                    return redirect(url_for("base_blueprint.dashboard"))
+            elif request.form["authentication_method"] == "LDAP Domain":
+                with Connection(
+                    ldap_client,
+                    user=f'{app.config["LDAP_USERDN"]}\\{name}',
+                    password=password,
+                    auto_bind=True,
+                    authentication=NTLM,
+                ) as connection:
+                    connection.search(
+                        app.config["LDAP_BASEDN"],
+                        f"(&(objectClass=person)(samaccountname={name}))",
+                        search_scope=SUBTREE,
+                        get_operational_attributes=True,
+                        attributes=["cn", "memberOf", "mail"],
+                    )
+                    json_response = loads(connection.response_to_json())["entries"][0]
+                    if json_response:
+                        user = {
+                            "name": name,
+                            "password": password,
+                            "email": json_response["attributes"].get("mail", ""),
+                        }
+                        if any(
+                            group in s
+                            for group in app.config["LDAP_ADMIN_GROUP"]
+                            for s in json_response["attributes"]["memberOf"]
+                        ):
+                            user["permissions"] = ["Admin"]
+                        new_user = factory("User", **user)
+                        login_user(new_user)
+                        return redirect(url_for("base_blueprint.dashboard"))
+            elif request.form["authentication_method"] == "TACACS":
+                if tacacs_client.authenticate(name, password).valid:
+                    user = factory("User", **{"name": name, "password": password})
+                    login_user(user)
+                    return redirect(url_for("base_blueprint.dashboard"))
+            abort(403)
+        except Exception as e:
+            info(f"Authentication failed ({str(e)})")
+            abort(403)
     if not current_user.is_authenticated:
-        return render_template(
-            'login.html',
-            login_form=LoginForm(request.form),
-            create_account_form=CreateAccountForm(request.form)
-        )
-    return redirect(url_for('base_blueprint.dashboard'))
+        login_form = LoginForm(request.form)
+        authentication_methods = [("Local User",) * 2]
+        if USE_LDAP:
+            authentication_methods.append(("LDAP Domain",) * 2)
+        if USE_TACACS:
+            authentication_methods.append(("TACACS",) * 2)
+        login_form.authentication_method.choices = authentication_methods
+        return render_template("login.html", login_form=login_form)
+    return redirect(url_for("base_blueprint.dashboard"))
 
 
-@blueprint.route('/logout')
-@login_required
-def logout():
+@get(bp, "/logout")
+def logout() -> Response:
     logout_user()
-    return redirect(url_for('admin_blueprint.login'))
+    return redirect(url_for("admin_blueprint.login"))
 
 
-@blueprint.route('/administration')
-@login_required
-@permission_required('Admin Section')
-def admninistration():
-    try:
-        tacacs_server = db.session.query(TacacsServer).one()
-    except NoResultFound:
-        tacacs_server = None
-    try:
-        syslog_server = db.session.query(SyslogServer).one()
-    except NoResultFound:
-        syslog_server = None
-    return render_template(
-        'administration.html',
-        geographical_parameters_form=GeographicalParametersForm(request.form),
-        gotty_parameters_form=GottyParametersForm(request.form),
-        netbox_form=NetboxForm(request.form),
-        parameters=db.session.query(Parameters).one(),
-        tacacs_form=TacacsServerForm(request.form),
-        syslog_form=SyslogServerForm(request.form),
-        opennms_form=OpenNmsForm(request.form),
-        tacacs_server=tacacs_server,
-        syslog_server=syslog_server
-    )
-
-
-@blueprint.route('/create_new_user', methods=['POST'])
-def create_new_user():
-    user_data = request.form.to_dict()
-    if 'permissions' in user_data:
-        abort(403)
-    return jsonify(factory(User, **user_data).serialized)
-
-
-@blueprint.route('/process_user', methods=['POST'])
-@login_required
-@permission_required('Edit Admin Section', redirect=False)
-def process_user():
-    user_data = request.form.to_dict()
-    user_data['permissions'] = request.form.getlist('permissions')
-    return jsonify(factory(User, **user_data).serialized)
-
-
-@blueprint.route('/get/<user_id>', methods=['POST'])
-@login_required
-@permission_required('Admin Section', redirect=False)
-def get_user(user_id):
-    user = retrieve(User, id=user_id)
-    return jsonify(user.serialized)
-
-
-@blueprint.route('/delete/<user_id>', methods=['POST'])
-@login_required
-@permission_required('Edit Admin Section', redirect=False)
-def delete_user(user_id):
-    user = retrieve(User, id=user_id)
-    db.session.delete(user)
+@post(bp, "/save_parameters", "Admin")
+def save_parameters() -> bool:
+    parameters = get_one("Parameters")
+    parameters.update(**request.form)
+    parameters.trigger_active_parameters(app)
     db.session.commit()
-    return jsonify(user.serialized)
+    return True
 
 
-@blueprint.route('/save_tacacs_server', methods=['POST'])
-@login_required
-@permission_required('Edit parameters', redirect=False)
-def save_tacacs_server():
-    TacacsServer.query.delete()
-    tacacs_server = TacacsServer(**request.form.to_dict())
-    db.session.add(tacacs_server)
+@post(bp, "/scan_cluster", "Admin")
+def scan_cluster() -> bool:
+    parameters = get_one("Parameters")
+    protocol = parameters.cluster_scan_protocol
+    for ip_address in IPv4Network(parameters.cluster_scan_subnet):
+        try:
+            instance = rest_get(
+                f"{protocol}://{ip_address}/rest/is_alive",
+                timeout=parameters.cluster_scan_timeout,
+            ).json()
+            if app.config["CLUSTER_ID"] != instance.pop("cluster_id"):
+                continue
+            factory("Instance", **{**instance, **{"ip_address": str(ip_address)}})
+        except ConnectionError:
+            continue
     db.session.commit()
-    return jsonify({'success': True})
+    return True
 
 
-@blueprint.route('/save_syslog_server', methods=['POST'])
-@login_required
-@permission_required('Edit parameters', redirect=False)
-def save_syslog_server():
-    SyslogServer.query.delete()
-    syslog_server = SyslogServer(**request.form.to_dict())
-    db.session.add(syslog_server)
-    db.session.commit()
-    return jsonify({'success': True})
-
-
-@blueprint.route('/query_opennms', methods=['POST'])
-@login_required
-@permission_required('Edit objects', redirect=False)
-def query_opennms():
-    parameters = db.session.query(Parameters).one()
-    login, password = parameters.opennms_login, request.form['password']
-    parameters.update(**request.form.to_dict())
-    db.session.commit()
-    json_devices = get(
-        parameters.opennms_devices,
-        headers={'Accept': 'application/json'},
-        auth=(login, password)
-    ).json()['node']
-    devices = {
-        device['id']:
-            {
-            'name': device.get('label', device['id']),
-            'description': device['assetRecord'].get('description', ''),
-            'location': device['assetRecord'].get('building', ''),
-            'vendor': device['assetRecord'].get('manufacturer', ''),
-            'model': device['assetRecord'].get('modelNumber', ''),
-            'operating_system': device.get('operatingSystem', ''),
-            'os_version': device['assetRecord'].get('sysDescription', ''),
-            'longitude': device['assetRecord'].get('longitude', 0.),
-            'latitude': device['assetRecord'].get('latitude', 0.),
-            'subtype': request.form['subtype']
-        } for device in json_devices
+@post(bp, "/get_cluster_status", "View")
+def get_cluster_status() -> dict:
+    instances = fetch_all("Instance")
+    return {
+        attr: [getattr(instance, attr) for instance in instances]
+        for attr in ("status", "cpu_load")
     }
 
-    for device in list(devices):
-        link = get(
-            f'{parameters.opennms_rest_api}/nodes/{device}/ipinterfaces',
-            headers={'Accept': 'application/json'},
-            auth=(login, password)
-        ).json()
-        for interface in link['ipInterface']:
-            if interface['snmpPrimary'] == 'P':
-                devices[device]['ip_address'] = interface['ipAddress']
-                factory(Device, **devices[device])
+
+@post(bp, "/database_helpers", "Admin")
+def database_helpers() -> bool:
+    delete_all(*request.form["deletion_types"])
+    clear_logs_date = request.form["clear_logs_date"]
+    if clear_logs_date:
+        clear_date = datetime.strptime(clear_logs_date, "%d/%m/%Y %H:%M:%S")
+        for job in fetch_all("Job"):
+            job.logs = {
+                date: log
+                for date, log in job.logs.items()
+                if datetime.strptime(date, "%Y-%m-%d-%H:%M:%S.%f") > clear_date
+            }
+        db.session.commit()
+    return True
+
+
+@post(bp, "/reset_status", "Admin")
+def reset_status() -> bool:
+    for job in fetch_all("Job"):
+        job.is_running = False
     db.session.commit()
-    return jsonify({'success': True})
+    return True
 
 
-@blueprint.route('/query_netbox', methods=['POST'])
-@login_required
-@permission_required('Edit objects', redirect=False)
-def query_netbox():
-    nb = netbox_api(
-        request.form['netbox_address'],
-        token=request.form['netbox_token']
-    )
-    for device in nb.dcim.devices.all():
-        device_ip = device.primary_ip4 or device.primary_ip6
-        factory(Device, **{
-            'name': device.name,
-            'ip_address': str(device_ip).split('/')[0],
-            'subtype': request.form['netbox_type'],
-            'longitude': 0.,
-            'latitude': 0.
-        })
-    return jsonify({'success': True})
+@post(bp, "/get_git_content", "Admin")
+def git_action() -> bool:
+    parameters = get_one("Parameters")
+    parameters.get_git_content(app)
+    return True
 
 
-@blueprint.route('/save_geographical_parameters', methods=['POST'])
-@login_required
-@permission_required('Edit parameters', redirect=False)
-def save_geographical_parameters():
-    parameters = db.session.query(Parameters).one()
-    parameters.update(**request.form.to_dict())
-    db.session.commit()
-    return jsonify({'success': True})
+@post(bp, "/scheduler/<action>", "Admin")
+def scheduler_action(action: str) -> bool:
+    getattr(scheduler, action)()
+    return True
 
 
-@blueprint.route('/save_gotty_parameters', methods=['POST'])
-@login_required
-@permission_required('Edit parameters', redirect=False)
-def save_gotty_parameters():
-    parameters = db.session.query(Parameters).one()
-    parameters.update(**request.form.to_dict())
-    db.session.commit()
-    return jsonify({'success': True})
+@post(bp, "/migration_<direction>", "Admin")
+def migration(direction: str) -> Union[bool, str]:
+    args = (app, request.form)
+    return migrate_import(*args) if direction == "import" else migrate_export(*args)

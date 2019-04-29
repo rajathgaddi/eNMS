@@ -7,4 +7,4 @@ General
 
    introduction
    installation
-   migrations
+   environment_variables

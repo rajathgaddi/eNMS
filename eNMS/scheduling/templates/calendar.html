@@ -20,6 +20,7 @@
       </div>
     </div>
   </div>
+</div>
 {% endblock content %}
 
 {% block javascripts %}
@@ -27,11 +28,11 @@
   <!-- FullCalendar -->
   <script src="{{ url_for('scheduling_blueprint.static', filename='fullcalendar/fullcalendar.min.js') }}"></script>
   <script>
+    const propertyTypes = {{ property_types|tojson|safe }};
     var tasks = {{ tasks|tojson|safe }};
   </script>
   <!-- Task management -->
   <script src="{{ url_for('scheduling_blueprint.static', filename='taskCommonMethods.js') }}"></script>
-  <script src="{{ url_for('scheduling_blueprint.static', filename='taskManagement.js') }}"></script>
   <!-- Calendar -->
   <script src="{{ url_for('scheduling_blueprint.static', filename='calendar.js') }}"></script>
 {% endblock javascripts %}

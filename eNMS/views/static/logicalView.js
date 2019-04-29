@@ -1,192 +1,81 @@
 /*
 global
 alertify: false
-d3: false
-graph: false
-labels: false
-partial: false
-showModal: false
-showObjectModal: false
+vis: false
 */
 
-const width = 1200;
-const height = 600;
-let selectedDevices = [];
+let container = document.getElementById("network");
+let selected; // eslint-disable-line no-unused-vars
+let network; // eslint-disable-line no-unused-vars
 
 /**
- * Select devices in the scheduling modal.
+ * Convert device to Vis node.
+ * @param {device} device - Device.
+ * @return {node}
  */
-function sendSelection() {
-  $('#devices').val(selectedDevices.map((s) => s[1].real_id));
+function deviceToNode(device) {
+  return {
+    id: device.id,
+    label: device.name,
+    image: `../views/static/images/2D/${device.subtype}.gif`,
+    shape: "image",
+  };
 }
 
 /**
- * Select a device.
- * @param {d} d - selected device.
+ * Convert link to Vis edge.
+ * @param {link} link - Link.
+ * @return {edge}
  */
-function selectNode(d) {
-  // we stop the propagation up the DOM tree so that the
-  // unselectAll event bound to the canvas is not triggered
-  d3.event.stopPropagation();
-  // add both the HTML and graph elements in the selectedDevices array
-  selectedDevices.push([this, d]);
-  /*
-  d3.select(this)
-    .select('image')
-    .attr('xlink:href', d.selected_img);
-  sendSelection();
-  */
-  showObjectModal('device', d.real_id);
+function linkToEdge(link) {
+  return {
+    id: link.id,
+    from: link.source_id,
+    to: link.destination_id,
+  };
 }
 
 /**
- * Show device property modal.
- * @param {d} d - selected device.
+ * Erase the network.
  */
-/*
-function showNodeProperties(d) {
-  showObjectModal('device', d.real_id);
-}
-*/
-
-/**
- * Show link property modal.
- * @param {d} d - selected link.
- */
-function showLinkProperties(d) {
-  showObjectModal('link', d.real_id);
+// eslint-disable-next-line
+function eraseNetwork() {
+  network = new vis.Network(container);
 }
 
 /**
- * Unselect all devices.
+ * Display a pool.
+ * @param {nodes} nodes - Array of nodes to display.
+ * @param {edges} edges - Array of edges to display.
  */
-function unselectAll() {
-  d3.event.preventDefault();
-  for (let i = 0; i < selectedDevices.length; i++) {
-    d3.select(selectedDevices[i][0])
-      .select('image')
-      .attr('xlink:href', selectedDevices[i][1].img);
-  }
-  selectedDevices = [];
-  sendSelection();
-}
-
-let zoom = d3.behavior.zoom()
-  .scaleExtent([1, 50])
-  .on('zoom', zoomed);
-
-let svg = d3.select('#logical_view').append('svg')
-  .attr('width', width)
-  .attr('height', height)
-  .on('click', unselectAll)
-  .call(zoom)
-  .on('mousedown.zoom', null);
-
-let force = d3.layout.force()
-  .gravity(0.2)
-  .distance(10)
-  .charge(-1000)
-  .size([width, height]);
-
-force
-  .nodes(graph.nodes)
-  .links(graph.links)
-  .start();
-
-let container = svg.append('g');
-
-let link = container.selectAll('.link')
-  .data(graph.links)
-  .enter().append('line')
-  .attr('class', 'link')
-  .on('dblclick', showLinkProperties);
-
-let node = container.selectAll('.node')
-  .data(graph.nodes)
-  .enter().append('g')
-  .attr('class', 'node')
-  .call(force.drag)
-  .on('click', selectNode);
-  // .on('dblclick', showNodeProperties);
-
-/**
- * Zoom with scroll.
- */
-function zoomed() {
-  container.attr(
-    'transform',
-    'translate(' + d3.event.translate + ')scale(' + d3.event.scale + ')'
+// eslint-disable-next-line
+function displayPool(nodes, edges) {
+  nodes = new vis.DataSet(nodes.map(deviceToNode));
+  edges = new vis.DataSet(edges.map(linkToEdge));
+  const network = new vis.Network(
+    container,
+    { nodes: nodes, edges: edges },
+    {}
+  );
+  network.on("oncontext", function(properties) {
+    properties.event.preventDefault();
+    const node = this.getNodeAt(properties.pointer.DOM);
+    const edge = this.getEdgeAt(properties.pointer.DOM);
+    if (typeof node !== "undefined") {
+      $(".menu").hide();
+      $(".rc-device-menu").show();
+      selected = node;
+    } else if (typeof edge !== "undefined") {
+      selected = edge;
+      $(".menu").hide();
+      $(".rc-link-menu").show();
+    } else {
+      $(".menu").hide();
+      $(".insite-menu").show();
+    }
+  });
+  alertify.notify(
+    `Loading the view...<br/>
+    Scroll to zoom in/out. Right-click on a node to display the menu.`
   );
 }
-
-node.append('image')
-  .attr('xlink:href', function(d) {
-    return d.img;
-  })
-  .attr('x', -8)
-  .attr('y', -8)
-  .attr('width', 16)
-  .attr('height', 16);
-
-node.append('text')
-  .attr('dx', 8)
-  .attr('dy', '.35em')
-  .text(function(d) {
-    return d[labels.device];
-  });
-
-force.on('tick', function() {
-  link
-    .attr('x1', function(d) {
-      return d.source.x;
-    })
-    .attr('y1', function(d) {
-      return d.source.y;
-    })
-    .attr('x2', function(d) {
-      return d.target.x;
-    })
-    .attr('y2', function(d) {
-      return d.target.y;
-    });
-  node.attr('transform', function(d) {
-    return 'translate(' + d.x + ',' + d.y + ')';
-  });
-});
-
-// when a filter is selected, apply it
-$('#select-filters').on('change', function() {
-  $.ajax({
-    type: 'POST',
-    url: `/objects/pool_objects/${this.value}`,
-    dataType: 'json',
-    success: function(objects) {
-      if (!objects) {
-        alertify.notify('HTTP Error 403 – Forbidden', 'error', 5);
-      } else {
-        let devicesId = objects.devices.map((n) => n.id);
-        let linksId = objects.links.map((l) => l.id);
-        node.style('visibility', function(d) {
-          return devicesId.includes(d.real_id) ? 'visible' : 'hidden';
-        });
-        link.style('visibility', function(d) {
-          return linksId.includes(d.real_id.toString()) ? 'visible' : 'hidden';
-        });
-        alertify.notify(`Filter applied.`, 'success', 5);
-      }
-    },
-  });
-});
-
-let action = {
-  'Parameters': partial(showModal, 'filters'),
-  'Add new task': partial(showModal, 'scheduling'),
-};
-
-$('#logical_view').contextMenu({
-  menuSelector: '#contextMenu',
-  menuSelected: function(invokedOn, selectedMenu) {
-    let row = selectedMenu.text();
-    action[row]();
-  },
-});

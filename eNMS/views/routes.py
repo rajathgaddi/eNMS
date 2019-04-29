@@ -1,105 +1,42 @@
-from flask import current_app, jsonify, render_template, request
-from flask_login import login_required
-from os.path import join
-from simplekml import Kml
+from flask import request
+from typing import Union
 
-from eNMS.admin.models import Parameters
-from eNMS.base.helpers import permission_required, retrieve
-from eNMS.base.properties import (
-    device_public_properties,
-    device_subtypes,
-    link_public_properties,
-    link_subtype_to_color,
-    pretty_names
+from eNMS.functions import fetch, fetch_all, get, get_one, post
+from eNMS.properties import subtype_sizes, link_subtype_to_color
+from eNMS.inventory.forms import (
+    AddDevice,
+    AddLink,
+    AddPoolForm,
+    DeviceAutomationForm,
+    GottyConnectionForm,
+    PoolRestrictionForm,
 )
-from eNMS.logs.models import Log
-from eNMS.objects.forms import AddDevice, AddLink
-from eNMS.objects.models import Pool, Device, Link
-from eNMS.views import blueprint, styles
-from eNMS.views.forms import GoogleEarthForm, ViewOptionsForm
+from eNMS.views import bp
 
 
-@blueprint.route('/<view_type>_view', methods=['GET', 'POST'])
-@login_required
-@permission_required('Views Section')
-def view(view_type):
-    add_link_form = AddLink(request.form)
-    all_devices = Device.choices()
-    add_link_form.source.choices = all_devices
-    add_link_form.destination.choices = all_devices
-    labels = {'device': 'name', 'link': 'name'}
-    if 'view_options' in request.form:
-        labels = {
-            'device': request.form['device_label'],
-            'link': request.form['link_label']
-        }
-    if len(Device.query.all()) < 50:
-        view = 'glearth'
-    elif len(Device.query.all()) < 2000:
-        view = 'leaflet'
-    else:
-        view = 'markercluster'
-    if 'view' in request.form:
-        view = request.form['view']
-    # name to id
-    name_to_id = {
-        device.name: id for id, device in enumerate(Device.query.all())
-    }
-    return render_template(
-        f'{view_type}_view.html',
-        pools=Pool.query.all(),
-        parameters=Parameters.query.one().serialized,
-        view=view,
-        view_options_form=ViewOptionsForm(request.form),
-        google_earth_form=GoogleEarthForm(request.form),
+@get(bp, "/<view_type>_view", "View")
+def view(view_type: str) -> dict:
+    parameters = get_one("Parameters").serialized
+    return dict(
+        add_pool_form=AddPoolForm(request.form),
+        template=f"geographical_view.html",
+        parameters=parameters,
         add_device_form=AddDevice(request.form),
-        add_link_form=add_link_form,
-        device_fields=device_public_properties,
-        link_fields=link_public_properties,
-        labels=labels,
-        names=pretty_names,
-        device_subtypes=device_subtypes,
+        add_link_form=AddLink(request.form),
+        device_automation_form=DeviceAutomationForm(request.form),
+        subtype_sizes=subtype_sizes,
+        gotty_connection_form=GottyConnectionForm(request.form),
         link_colors=link_subtype_to_color,
-        name_to_id=name_to_id,
-        devices=Device.serialize(),
-        links=Link.serialize()
+        pool_restriction_form=PoolRestrictionForm(request.form),
+        view_type=view_type,
     )
 
 
-@blueprint.route('/export_to_google_earth', methods=['POST'])
-@login_required
-@permission_required('Views Section', redirect=False)
-def export_to_google_earth():
-    kml_file = Kml()
-    for device in Device.query.all():
-        point = kml_file.newpoint(name=device.name)
-        point.coords = [(device.longitude, device.latitude)]
-        point.style = styles[device.subtype]
-        point.style.labelstyle.scale = request.form['label_size']
-    for link in Link.query.all():
-        line = kml_file.newlinestring(name=link.name)
-        line.coords = [
-            (link.source.longitude, link.source.latitude),
-            (link.destination.longitude, link.destination.latitude)
-        ]
-        line.style = styles[link.type]
-        line.style.linestyle.width = request.form['line_width']
-    filepath = join(
-        current_app.path,
-        'google_earth',
-        f'{request.form["name"]}.kmz'
-    )
-    kml_file.save(filepath)
-    return jsonify({'success': True})
-
-
-@blueprint.route('/get_logs/<device_id>', methods=['POST'])
-@login_required
-@permission_required('Logs Section', redirect=False)
-def get_logs(device_id):
-    device = retrieve(Device, id=device_id)
+@post(bp, "/get_logs/<int:device_id>", "View")
+def get_logs(device_id: int) -> Union[str, bool]:
     device_logs = [
-        log.content for log in Log.query.all()
-        if log.source == device.ip_address
+        log.content
+        for log in fetch_all("Log")
+        if log.source == fetch("Device", id=device_id).ip_address
     ]
-    return jsonify('\n'.join(device_logs))
+    return "\n".join(device_logs) or True

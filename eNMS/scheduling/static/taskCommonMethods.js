@@ -1,34 +1,27 @@
 /*
 global
-alertify: false
+convertSelect: false
+doc: false
 */
 
-/**
- * Show the task modal for task.
- * @param {id} id - Task id.
- */
-function showTaskModal(id) { // eslint-disable-line no-unused-vars
-  if (!id) {
-    $('#title').text('Create a New Task');
-    $('#task-modal-form').trigger('reset');
-    $('#task-modal').modal('show');
-  } else {
-    $.ajax({
-      type: 'POST',
-      url: `/scheduling/get/${id}`,
-      dataType: 'json',
-      success: function(properties) {
-        if (!properties) {
-          alertify.notify('HTTP Error 403 – Forbidden', 'error', 5);
-        } else {
-          for (const [property, value] of Object.entries(properties)) {
-            $(`#${property}`).val(value);
-          }
-          $('#job').val(properties.job.id);
-        }
-        $('#title').text(`Edit Task '${properties.name}'`);
+(function() {
+  convertSelect("#task-job");
+  const dates = ["task-start_date", "task-end_date"];
+  const today = new Date();
+  for (let i = 0; i < dates.length; i++) {
+    $("#" + dates[i]).datetimepicker({
+      format: "DD/MM/YYYY HH:mm:ss",
+      widgetPositioning: {
+        horizontal: "left",
+        vertical: "bottom",
       },
+      useCurrent: false,
     });
+    if ($(`#${dates[i]}`).length) {
+      $(`#${dates[i]}`)
+        .data("DateTimePicker")
+        .minDate(today);
+    }
   }
-  $('#task-modal').modal('show');
-}
+  doc("https://enms.readthedocs.io/en/latest/scheduling/task_management.html");
+})();

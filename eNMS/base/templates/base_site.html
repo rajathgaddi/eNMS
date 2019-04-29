@@ -4,7 +4,6 @@
     {% block head %}
       {% block meta %}
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-        <!-- Meta, title, CSS, favicons, etc. -->
         <link rel="shortcut icon" href="{{ url_for('static', filename='images/logo.png') }}" />
         <meta charset="utf-8">
         <meta http-equiv="X-UA-Compatible" content="IE=edge">
@@ -13,21 +12,14 @@
       {% endblock meta %}
       <title>eNMS | {% block title %}{% endblock %}</title>
       {% block stylesheets %}
-        <!-- Bootstrap -->
         <link href="{{ url_for('static', filename='bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
-        <!-- Bootstrap  datetimepicker -->
-        <link href="{{ url_for('static', filename='bootstrap-datetimepicker/bootstrap-datetimepicker.min.css') }}" 
-        <!-- Font Awesome -->
+        <link href="{{ url_for('static', filename='bootstrap-datetimepicker/bootstrap-datetimepicker.min.css') }}" rel="stylesheet">
         <link href="{{ url_for('static', filename='font-awesome/css/font-awesome.min.css') }}" rel="stylesheet">
-        <!-- NProgress -->
-        <link href="{{ url_for('static', filename='nprogress/nprogress.css') }}" rel="stylesheet">
-        <!-- Multiselect -->
-        <link href="{{ url_for('static', filename='fselect/fSelect.min.css') }}" rel="stylesheet">
-        <!-- Alertify -->
+        <link href="{{ url_for('static', filename='nprogress/nprogress.min.css') }}" rel="stylesheet">
+        <link href="{{ url_for('static', filename='bootstrap-select/bootstrap-select.min.css') }}" rel="stylesheet">
         <link href="{{ url_for('static', filename='alertifyjs/css/alertify.min.css') }}" rel="stylesheet">
-        <link href="{{ url_for('static', filename='alertifyjs/css/custom.alertify.css') }}" rel="stylesheet">
-        <!-- eNMS -->
-        <link href="{{ url_for('static', filename='enms/enms.min.css') }}" rel="stylesheet">
+        <link href="{{ url_for('static', filename='panel/jspanel.min.css') }}" rel="stylesheet">
+        <link href="{{ url_for('static', filename='enms/base.min.css') }}" rel="stylesheet">
       {% endblock stylesheets %}
     {% endblock head %}
   </head>
@@ -46,7 +38,6 @@
             </div>
           {% endblock header %}
           {% block content %}
-            <!-- {{ content }} -->
           {% endblock content %}
           {% block footer %}
             <footer>
@@ -56,30 +47,20 @@
         </div>
       </div>
       {% block javascripts %}
-        <!-- jQuery -->
         <script src="{{ url_for('static', filename='jquery/jquery.min.js') }}"></script>
-        <!-- Bootstrap -->
         <script src="{{ url_for('static', filename='bootstrap/bootstrap.min.js') }}"></script>
-        <!-- NProgress -->
         <script src="{{ url_for('static', filename='nprogress/nprogress.min.js') }}"></script>
-        <!-- Multiselect -->
-        <script src="{{ url_for('static', filename='fselect/fSelect.min.js') }}"></script>
-        <!-- Moment -->
+        <script src="{{ url_for('static', filename='bootstrap-select/bootstrap-select.min.js') }}"></script>
         <script src="{{ url_for('static', filename='moment/moment.min.js') }}"></script>
-        <!-- Parsley -->
         <script src="{{ url_for('static', filename='parsleyjs/parsley.min.js') }}"></script>
-        <!-- Alertify -->
         <script src="{{ url_for('static', filename='alertifyjs/alertify.min.js') }}"></script>
-        <!-- Datatables -->
+        <script src="{{ url_for('static', filename='panel/jspanel.min.js') }}"></script>
         <script src="{{ url_for('static', filename='datatables/jquery.dataTables.min.js') }}"></script>
         <script src="{{ url_for('static', filename='datatables/dataTables.bootstrap.min.js') }}"></script>
-        <!-- Bootstrap Datetimepicker -->
+        <script src="{{ url_for('static', filename='smart-wizard/jquery.smartWizard.min.js') }}"></script>
         <script src="{{ url_for('static', filename='bootstrap-datetimepicker/bootstrap-datetimepicker.min.js') }}"></script>
-        <script src="{{ url_for('static', filename='enms/commonFunctions.js') }}"></script>
+        <script src="{{ url_for('static', filename='enms/base.js') }}"></script>
       {% endblock %}
-      <!-- eNMS -->
-      <script src="{{ url_for('static', filename='enms/enms.js') }}"></script>
-      
     {% endblock body %}
   </body>
 </html>

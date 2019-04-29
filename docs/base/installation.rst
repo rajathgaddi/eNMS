@@ -2,6 +2,9 @@
 Installation
 ============
 
+Requirements: python 3.6+
+(Earlier versions of python not supported.)
+
 Run eNMS in test mode
 ---------------------
 
@@ -90,8 +93,8 @@ Once this is done, you must tell eNMS how to connect to the vault:
 
 eNMS can also unseal the Vault automatically at start time.
 This mechanism is disabled by default. To activate it, you need to:
- - set the ``UNSEAL_VAULT`` environement variable to ``1``
- - set the UNSEAL_VAULT_KEYx (``x`` in [1, 5]) environment variables :
+- set the ``UNSEAL_VAULT`` environement variable to ``1``
+- set the UNSEAL_VAULT_KEYx (``x`` in [1, 5]) environment variables :
 
 ::
 
@@ -182,11 +185,11 @@ The configuration file contains the SQL Alchemy configuration:
  SQLALCHEMY_DATABASE_URI = environ.get(
      'ENMS_DATABASE_URL',
      'postgresql://{}:{}@{}:{}/{}'.format(
-         environ.get('ENMS_DATABASE_USER', 'enms'),
-         environ.get('ENMS_DATABASE_PASSWORD'),
-         environ.get('ENMS_DATABASE_HOST', 'localhost'),
-         environ.get('ENMS_DATABASE_PORT', 5432),
-         environ.get('ENMS_DATABASE_NAME', 'enms')
+         environ.get('POSTGRES_USER', 'enms'),
+         environ.get('POSTGRES_PASSWORD'),
+         environ.get('POSTGRES_HOST', 'localhost'),
+         environ.get('POSTGRES_PORT', 5432),
+         environ.get('POSTGRES_DB', 'enms')
      )
  )
 
@@ -194,6 +197,121 @@ You need to export each variable with its value:
 
 ::
 
- export ENMS_DATABASE_USER=your-username
- export ENMS_DATABASE_PASSWORD=your-password
+ export POSTGRES_USER=your-username
+ export POSTGRES_PASSWORD=your-password
  etc...
+
+LDAP/Active Directory Integration
+*********************************
+
+The following environment variables (with example values) control how eNMS integrates with LDAP/Active Directory for user authentication. eNMS first checks to see if the user exists locally inside eNMS. If not and if LDAP/Active Directory is enabled, eNMS tries to authenticate against LDAP/AD using the pure python ldap3 library, and if successful, that user gets added to eNMS locally.
+
+::
+
+  Set to 1 to enable LDAP authentication; otherwise 0:
+    export USE_LDAP=1
+  The LDAP Server URL (also called LDAP Provider URL):
+    export LDAP_SERVER=ldap://domain.ad.company.com
+  The LDAP distinguished name (DN) for the user. This gets combined inside eNMS as "domain.ad.company.com\\username" before being sent to the server.
+    export LDAP_USERDN=domain.ad.company.com
+  The base distinguished name (DN) subtree that is used when searching for user entries on the LDAP server. Use LDAP Data Interchange Format (LDIF) syntax for the entries.
+    export LDAP_BASEDN=DC=domain,DC=ad,DC=company,DC=com
+  The string to match against 'memberOf' attributes of the matched user to determine if the user is granted Admin Privileges inside eNMS.
+    export LDAP_ADMIN_GROUP=company.AdminUsers[,group2,group3]
+
+.. note:: Failure to match memberOf attribute output against LDAP_ADMIN_GROUP results in eNMS user account creation with minimum privileges. An admin user can afterwards alter that user's privileges from :guilabel:`Admin/User Management`
+.. note:: Because eNMS saves the user credentials for LDAP and TACACS+ into the Vault, if a user's credentials expire due to password aging, that user needs to login to eNMS in order for the updated credentials to be replaced in Vault storage. In the event that jobs are already scheduled with User Credentials, these might fail if the credentials are not updated in eNMS.
+
+
+GIT Integration
+***************
+
+To enable sending device configs captured by configuration management, as well as service and workflow job logs, to GIT for revision control you will need to configure the following:
+
+First, create two separate git projects in your repository. Assign a single GIT userid to have write access to both.
+
+Additionally, the following commands need to be run to properly configure GIT in the eNMS environment. These commands populate ~/.gitconfig:
+
+::
+
+  git config --global user.name "git_username"
+  git config --global user.email "git_username_email@company.com"
+  git config --global push.default simple
+
+Similarly, if your environment already has an SSH key created for other purposes, you will need to create a new SSH key to register with the GIT server:
+
+::
+
+  ssh-keygen -t rsa -f ~/.ssh/id_rsa.git
+
+And to instruct SSH to use the new key when connecting with the GIT server, create an entry in ~/.ssh/config:
+
+::
+
+  Host git-server
+    Hostname git-server.company.com
+    IdentityFile ~/.ssh/id_rsa.git
+    IdentitiesOnly yes
+
+Additionally, the URLs of each of the GIT server repositories needs to be populated in the Administration Panel of the UI:
+  - for the Automation repository to be able tp store the results of services and workflows in git.
+  - for the Configurations repository to be able to store device configurations in git.
+
+.. note:: When setting up new groups/projects in GitLab, know that the Master branch by default is protected, and unfortunately in the current version of GitLab, it will not show you that it is protected until a file is added to the repository first. A trick is to press the 'Add README' convenience button in the GitLab UI; this will add a file. Then go to repository, protected branches, and set access rights for Masters and Developers and click 'Unprotect'.
+
+
+Default Examples
+----------------
+
+By default, eNMS will create a few examples of each type of object (devices, links, services, workflows...).
+If you run eNMS in production, you might want to deactivate this.
+
+To deactivate, set the ``CREATE_EXAMPLES`` environment variable to ``0``.
+
+::
+
+ export CREATE_EXAMPLES=0
+
+Logging
+-------
+
+You can configure eNMS as well as Gunicorn log level with the following environment variables
+
+::
+
+  export ENMS_LOG_LEVEL='CRITICAL'
+  export GUNICORN_LOG_LEVEL='critical'
+  export GUNICORN_ACCESS_LOG='None'
+
+Migration, Backup, and Restore
+------------------------------
+
+The eNMS migration system handles exporting the complete database content into JSON files based on eNMS object types.
+These migration files are used for migrating from one version of eNMS to the next version. They are also used for Backup and Restore of eNMS.
+The migration system is accessed from :guilabel:`Admin/Advanced` or from the ReST API.
+Device inventory data is included in the exported migration files, and new devices can be added by importing the Topology Spreadsheet, so these
+mechanisms can work together to manage your data:
+
+When creating a new instance of eNMS (backup instance, new version of eNMS):
+  - Install eNMS; note that eNMS has an empty database when installed the first time
+  - Run the :guilabel:`Admin/Advanced/Migration/Import` either from the UI or from the ReST API. Select 'Empty_database_before_import' = True, specify
+    the location of the file to import, and select all object types to be imported: "User", "Device", "Link", "Pool", "Service", "WorkflowEdge", "Workflow", "Task"
+  - Next, run the :guilabel:`Inventory/Import & Export/Import and Export Topology` and specify the Excel Spreadsheet to overlay
+    new Device and topology data. Make sure not to select 'replace on import' to prevent overwriting the device data from the migration import.
+    Select 'update pools on import' to dynamically have pool selection criteria re-applied to the entire inventory contents
+  - Multiple topology spreadsheets can be added as overlays if desired. Selection of 'update pools on import' can be deferred to run only after the last import.
+
+When backing up eNMS, it is only necessary to perform :guilabel:`Admin/Advanced/Migration/Export` either from the UI or from the ReST API.
+  - Select a directory name for storing the migration files into, and select all object types to Export
+  - the Topology Export of device and link data from :guilabel:`Inventory/Import & Export/Import and Export Topology` is not needed for Backup.
+    It is intended for sharing of device and link data.
+
+Advanced: Migrating Services and Workflows to a new instance with a different inventory:
+  - The migration files contain JSON representations of database relationships. Loading a mismatched set of migration files could result in database corruption, so be careful.
+  - The Service and Workflow .yaml migration files also contain the list of devices that are selected for each job. If tnose devices do not exactly exist on the new instance,
+    selected devices and pools need to be cleared on all services and workflows before exporting to files. This will allow those services and workflows to be migrated to the new instance.
+  - Files needed to migrate: Service.yaml, Workflow.yaml, WorkflowEdge.yaml
+
+What if I only want to Import new devices or links to eNMS:
+  - Then perform import of the topology spreadsheet using :guilabel:`Inventory/Import & Export/Import and Export Topology`
+  - Make sure 'replace on import' is not selected, and select 'update pools on import'

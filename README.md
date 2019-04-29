@@ -1,7 +1,38 @@
-|             | status |
-|-------------|------------|
-| **master** | [![Build Status](https://travis-ci.org/afourmy/eNMS.svg?branch=master)](https://travis-ci.org/afourmy/eNMS) [![Coverage Status](https://coveralls.io/repos/github/afourmy/eNMS/badge.svg?branch=master)](https://coveralls.io/github/afourmy/eNMS?branch=master)
-| **develop** | [![Build Status](https://travis-ci.org/afourmy/eNMS.svg?branch=develop)](https://travis-ci.org/afourmy/eNMS) [![Coverage Status](https://coveralls.io/repos/github/afourmy/eNMS/badge.svg?branch=develop)](https://coveralls.io/github/afourmy/eNMS?branch=develop)
+<h1 align="center">eNMS</h1>
+<h2 align="center">An enterprise-grade vendor-agnostic network automation platform.</h2>
+
+___
+
+<table>
+    <thead>
+        <tr>
+            <th>Branch</th>
+            <th>Status</th>
+            <th>Coverage</th>
+            <th>Documentation</th>
+            <th>Python Style</th>
+            <th>JavaScript Style</th>
+            <th>License</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>master</td>
+            <td><a href="https://travis-ci.org/afourmy/eNMS"><img src="https://travis-ci.org/afourmy/eNMS.svg?branch=master" alt="Build Status (master branch)"></img></a></td>
+            <td><a href="https://coveralls.io/github/afourmy/eNMS?branch=master"><img src="https://coveralls.io/repos/github/afourmy/eNMS/badge.svg?branch=master" alt="Coverage (master branch)"></img></a></td>
+            <td><a href="https://enms.readthedocs.io/en/latest/?badge=master"><img src="https://readthedocs.org/projects/enms/badge/?version=stable" alt="Documentation (master branch)"></img></a></td>
+          <td rowspan=2><img alt="PEP8" src="https://img.shields.io/badge/code%20style-pep8-orange.svg"><br><img alt="Code style: black" src="https://img.shields.io/badge/code%20style-black-000000.svg"></td>
+          <td rowspan=2><img alt="Code style: google" src="https://img.shields.io/badge/code%20style-google-blueviolet.svg"><br><img alt="Code style: prettier" src="https://img.shields.io/badge/code_style-prettier-ff69b4.svg"></td>
+          <td rowspan=2><a href="https://www.gnu.org/licenses/gpl-3.0"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License"></img></a></td>
+        </tr>
+        <tr>
+            <td>develop</td>
+            <td><a href="https://travis-ci.org/afourmy/eNMS"><img src="https://travis-ci.org/afourmy/eNMS.svg?branch=develop" alt="Build Status (develop branch)"></img></a></td>
+            <td><a href="https://coveralls.io/github/afourmy/eNMS?branch=develop"><img src="https://coveralls.io/repos/github/afourmy/eNMS/badge.svg?branch=develop" alt="Coverage (develop branch)"></img></a></td>
+            <td><a href="https://enms.readthedocs.io/en/latest/?badge=develop"><img src="https://readthedocs.org/projects/enms/badge/?version=develop" alt="Documentation (develop branch)"></img></a></td>
+        </tr>
+    </tbody>
+</table>
 
 ___
 
@@ -19,6 +50,8 @@ It encompasses the following aspects of network automation:
 - **Workflows**: Services can be combined together graphically in a workflow.
 - **Scheduling**: Services and workflows can be scheduled to start at a later time, or run periodically.
 - **Event-driven automation**: Services and workflows can be triggered by an external event (ReST call or Syslog message).
+
+[![Workflow System](docs/_static/base/workflow.gif)](http://afourmy.pythonanywhere.com/automation/workflow_builder/)
 
 ___
 
@@ -98,6 +131,19 @@ While services and workflows can be run directly and immediately from the web UI
 - Online Demo: _[Calendar](http://afourmy.pythonanywhere.com/scheduling/calendar)_
 - Docs: _[Scheduling](https://enms.readthedocs.io/en/latest/scheduling/task_management.html)_
 
+## 6. Configuration Management
+
+eNMS can work as a network device configuration backup tool and replace Oxidized/Rancid with the following features:
+- Poll network elements; download configurations when they change
+- Easily view the current configuration of a device in the inventory
+- Search for any text in any configuration
+- View differences between various revisions of a configuration
+- Download device configuration to a local text file
+- Use the ReST API support to return a specified device’s configuration
+- Export all device configurations to a remote Git repository (e.g. Gitlab)
+
+[![Configuration Management](docs/_static/base/configuration_management.png)](http://afourmy.pythonanywhere.com/scheduling/calendar)
+
 ## 6. Event-driven automation
 
 Event-driven automation in eNMS has two aspects:
@@ -106,14 +152,24 @@ Event-driven automation in eNMS has two aspects:
 
 Docs: _[ReST API](https://enms.readthedocs.io/en/latest/event_driven/rest_api.html)_
 
+## Notification system
+
+After a service or a workflow is executed, you can configure eNMS to send a notification with the results.
+Three types of notification are available:
+- via mail (a brief summary and the full logs attached as a textfile)
+- via Slack
+- via Mattermost (Open-Source and private alternative to Slack)
+
+Additionally, eNMS can be configured to push the results to a remote Git repository.
+
 ___
 
 # Advanced features
 
 ## 1. Authentication
 
-- eNMS supports TACACS+ authentication: upon logging in, a request will be sent to your TACACS+ server to validate the credentials and log in the user.
-- Authentication with RADIUS and Active Directory are currently under development.
+- eNMS supports TACACS+ and LDAP/Active Directory authentication: upon logging in, a request will be sent to your TACACS+/LDAP server to validate the credentials and log in the user.
+- Authentication with RADIUS is currently under development.
 
 ## 2. Network creation with external Network Source of Truth
 
@@ -129,16 +185,17 @@ ___
 # Getting started
 
 ## Quick start
+    Install python 3.6+ (earlier versions not supported)
     git clone https://github.com/afourmy/eNMS.git
     cd eNMS
     pip3 install -r requirements.txt
     export FLASK_APP=app.py (on Windows, use `set` instead of `export`)
     flask run --host=0.0.0.0
-    Log in (default credentials: `admin`/`admin`)
+    Log in (default credentials: admin / admin)
 
 ## Quick start as a docker container
     docker run -d -p 5000:5000 --name enms --restart always afourmy/enms
-    Log in (default credentials: `admin`/`admin`)
+    Log in (default credentials: admin / admin)
 
 ## Deploy eNMS in production
 
@@ -154,9 +211,9 @@ ___
 
 # Coming up next
 
-- A notification system (send the results of an automation task via mail or Slack)
-- Gitlab support (e.g push the logs of an automation task to gitlab)
-- RADIUS + Active Directory authentication
+- RADIUS authentication
+- Database clustering architecture
+- Training Videos
 
 # Other projects you might be interested in
 
